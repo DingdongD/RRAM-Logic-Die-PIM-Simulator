@@ -7,6 +7,7 @@ CAL_DIR="${CAL_DIR:-$ROOT/calibration_runs/destiny_rram_4stack}"
 HBM_DIR="${HBM_DIR:-$ROOT/results/ramulator21_smoke}"
 
 cd "$ROOT"
+mkdir -p "$CAL_DIR" "$HBM_DIR" "$ROOT/results"
 
 "$PYTHON" -m pip install -e .
 bash "$ROOT/third_party/bootstrap.sh"
@@ -43,7 +44,7 @@ PY
   --destiny-manifest "$MANIFEST" \
   --workdir "$HBM_DIR" \
   --stem hbm3_smoke \
-  > "$HBM_DIR.stdout.json"
+  > "$HBM_DIR/hbm3_smoke.stdout.json"
 
 "$PYTHON" -m rram_cmodel.cli dse \
   --M 1 --K 256 --N 256 --weight-bits 8 \
