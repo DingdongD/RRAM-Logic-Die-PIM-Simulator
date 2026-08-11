@@ -1,0 +1,15 @@
+{
+  "destiny": {
+    "repository": "https://github.com/sparsh0mittal/destiny_3d_cache.git",
+    "commit": "32ef839f9f32484a7457f8013b2a0883e757300b"
+  },
+  "ramulator2": {
+    "repository": "https://github.com/CMU-SAFARI/ramulator2.git",
+    "commit": "b30320bc9385b708e86b67ebb9f48858cc66d798",
+    "python_package_version": "2.1.0"
+  },
+  "cacti_reference": {
+    "repository": "https://github.com/HewlettPackard/cacti.git",
+    "commit": "1ffd8dfb10303d306ecd8d215320aea07651e878"
+  }
+}
