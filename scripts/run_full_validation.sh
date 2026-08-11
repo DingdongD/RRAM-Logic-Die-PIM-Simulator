@@ -9,7 +9,7 @@ HBM_DIR="${HBM_DIR:-$ROOT/results/ramulator21_smoke}"
 cd "$ROOT"
 
 "$PYTHON" -m pip install -e .
-"$ROOT/third_party/bootstrap.sh"
+bash "$ROOT/third_party/bootstrap.sh"
 "$PYTHON" -m pytest -q
 
 "$PYTHON" "$ROOT/scripts/calibrate_destiny.py" \
@@ -33,13 +33,11 @@ print("TSV latency ns/hop:", m.tsv.read_latency_ns)
 print("TSV effective pJ/bit/hop:", m.tsv.read_energy_pj_per_bit)
 PY
 
-# Small calibrated CModel smoke comparison.
 "$PYTHON" -m rram_cmodel.cli compare \
   --M 1 --K 256 --N 256 --weight-bits 8 \
   --destiny-manifest "$MANIFEST" \
   > "$CAL_DIR/compare_smoke.json"
 
-# Small real HBM3 trace through the pinned official Ramulator2.1 backend.
 "$PYTHON" -m rram_cmodel.cli hbm-trace \
   --M 1 --K 64 --N 128 --weight-bits 8 \
   --destiny-manifest "$MANIFEST" \
@@ -47,7 +45,6 @@ PY
   --stem hbm3_smoke \
   > "$HBM_DIR.stdout.json"
 
-# Small DSE smoke to verify the calibrated manifest propagates into sweeps.
 "$PYTHON" -m rram_cmodel.cli dse \
   --M 1 --K 256 --N 256 --weight-bits 8 \
   --destiny-manifest "$MANIFEST" \
