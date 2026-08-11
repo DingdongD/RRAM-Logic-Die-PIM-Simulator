@@ -9,7 +9,7 @@ from rram_cmodel.components.memory import (
     Packet,
     RRAMTSVWBufferPath,
 )
-from rram_cmodel.config import FIFOConfig, SystemConfig, WBufferBankingConfig
+from rram_cmodel.config import FIFOConfig, SystemConfig
 from rram_cmodel.mapping import BitSegment, WeightTile
 from rram_cmodel.presets import functional_example
 
@@ -48,7 +48,7 @@ def test_wbuf_read_ports_limit_pe_service_rate():
 
     pe1 = PELine(base.pe, one_bank, weight_bits=8)
     pe16 = PELine(base.pe, sixteen_banks, weight_bits=8)
-    tile = WeightTile(n0=0, k0=0, nt=128, kt=8, m_reuse=1)
+    tile = WeightTile(tile_id=0, n0=0, k0=0, nt=128, kt=8, m_reuse=1)
 
     assert pe16.compute_cycles(tile) < pe1.compute_cycles(tile)
 
