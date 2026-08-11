@@ -10,12 +10,16 @@ class TrafficCounters:
     useful_bits: int = 0
     transferred_bits: int = 0
     dynamic_energy_pj: float = 0.0
+    queue_stall_cycles: int = 0
+    max_queue_occupancy: int = 0
 
     def add(self, other: "TrafficCounters") -> None:
         self.accesses += other.accesses
         self.useful_bits += other.useful_bits
         self.transferred_bits += other.transferred_bits
         self.dynamic_energy_pj += other.dynamic_energy_pj
+        self.queue_stall_cycles += other.queue_stall_cycles
+        self.max_queue_occupancy = max(self.max_queue_occupancy, other.max_queue_occupancy)
 
 
 @dataclass
@@ -42,6 +46,8 @@ class SimulationResult:
     weight_source_transferred_bits: int
     energy_pj: Dict[str, float] = field(default_factory=dict)
     traffic_bits: Dict[str, int] = field(default_factory=dict)
+    queue_stall_cycles: Dict[str, int] = field(default_factory=dict)
+    max_queue_occupancy: Dict[str, int] = field(default_factory=dict)
 
     @property
     def total_energy_pj(self) -> float:
@@ -64,4 +70,6 @@ class SimulationResult:
             "energy_pj": dict(self.energy_pj),
             "total_energy_pj": self.total_energy_pj,
             "traffic_bits": dict(self.traffic_bits),
+            "queue_stall_cycles": dict(self.queue_stall_cycles),
+            "max_queue_occupancy": dict(self.max_queue_occupancy),
         }
