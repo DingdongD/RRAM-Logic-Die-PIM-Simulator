@@ -14,7 +14,7 @@ Generated source trees live under `third_party/destiny/` and `third_party/ramula
 - Pinned revision: `32ef839f9f32484a7457f8013b2a0883e757300b`
 - Relevant sources: `TSV.h`, `TSV.cpp`, `Result.cpp`, `macros.h`
 
-DESTINY states that its coarse/fine TSV models come from CACTI-3DD. Its `BankWithHtree` initializes the TSV with `TSV::Initialize(tsv_type)` (the default unbuffered electrical model); `TSV.cpp` obtains TSV R/C/area from technology parameters and computes propagation delay/dynamic energy. `Result.cpp` separately reports total read latency/energy, TSV latency/energy, and read bandwidth for stacked configurations.
+DESTINY states that its coarse/fine TSV models come from CACTI-3DD. Its `BankWithHtree` initializes the TSV with `TSV::Initialize(tsv_type)` (the default unbuffered electrical model); `TSV.cpp` obtains TSV R/C/area from technology parameters and computes propagation delay/dynamic energy. `Result.cpp` separately reports total read latency/energy, read-path TSV latency/energy, read bandwidth, and leakage for stacked configurations.
 
 The checked-in reference calibration input is:
 
@@ -32,17 +32,30 @@ python scripts/calibrate_destiny.py \
   --output-dir calibration_runs/destiny_rram_4stack
 ```
 
-The runner archives the exact config and raw DESTINY stdout, verifies the checked-out DESTINY commit, and creates `calibration.json`. Normalization is strict:
+The runner archives the exact config and raw DESTINY stdout, verifies the checked-out DESTINY commit, and creates `calibration.json`. Parsing is section-aware because DESTINY reuses labels such as `TSV Latency` under both Read and Write result subtrees. Normalization is strict:
 
-- `RRAM read latency = reported Read Latency - reported TSV Latency`.
-- `RRAM read energy/access = reported Read Dynamic Energy - reported TSV Dynamic Energy`.
-- `RRAM issue interval = word_bytes / reported Read Bandwidth`.
-- `TSV latency/hop = reported TSV Latency / (StackedDieCount - 1)`.
-- `TSV effective energy/bit/hop = reported TSV Dynamic Energy / (StackedDieCount - 1) / WordWidth`.
+- `RRAM read latency = top-level Read Latency - TSV Latency nested under Read Latency`.
+- `RRAM read energy/access = top-level Read Dynamic Energy - TSV Dynamic Energy nested under Read Dynamic Energy`.
+- `RRAM issue interval = word_bytes / Read Bandwidth`.
+- `RRAM static power = (top-level Leakage Power - TSV Leakage nested under Leakage Power) * replicated bank count`.
+- `TSV latency/hop = read-path TSV Latency / (StackedDieCount - 1)`.
+- `TSV effective energy/bit/hop = read-path TSV Dynamic Energy / (StackedDieCount - 1) / WordWidth`.
 
 The final TSV term is explicitly an **effective per-data-bit access cost**: DESTINY's reported TSV term contains the complete TSV contribution for the word access, including its modeled address/control component. This normalization preserves the exact DESTINY TSV energy for one physical word transfer without pretending that DESTINY printed a pure data-via-only number.
 
-The parser fails if the total/TSV decomposition is absent, inconsistent, negative after subtraction, or has an unknown unit. The manifest records SHA256 hashes of both the archived config and raw output.
+The parser fails if the read-path total/TSV decomposition is absent, inconsistent, negative after subtraction, or has an unknown unit. The manifest records SHA256 hashes of both the archived config and raw output.
+
+The validated reference CI calibration produced approximately:
+
+```text
+RRAM read latency     1.795909 ns
+RRAM read cycle       1.371801 ns
+RRAM read energy      321.526 pJ/access
+RRAM static power     316.032 mW for 64 replicated macros
+TSV hop count         3
+TSV latency           0.00003033 ns/hop
+TSV effective energy  0.63275 pJ/bit/hop
+```
 
 **CModel rule:** physical TSV delay/energy comes from DESTINY/CACTI-3DD. Aggregate lane count, serialization, finite FIFO depth, credits, and WBUF backpressure remain architectural parameters.
 
@@ -70,15 +83,20 @@ CACTI is source-lineage validation for DESTINY's CACTI-3DD-derived TSV model. Th
   - refresh manager: `HBM34PerBankRefresh`
   - frontend: `LoadStoreTrace`
 
-The HBM backend consumes the same ordered/repeated physical transaction stream produced by the CModel mapper. Every run archives the trace and generated runner hashes, selected components, returned `sim.stats`, package version, and native `_ramulator` extension SHA256.
+`bootstrap.sh` forces CMake to use the exact active Python interpreter before installing the editable Ramulator package, and immediately imports the native `_ramulator` module as an ABI check.
+
+The HBM backend consumes the same ordered/repeated physical transaction stream produced by the CModel mapper. Every run archives the trace and generated runner hashes, selected components, returned `sim.stats`, package version, Python/native module paths, and native `_ramulator` SHA256.
 
 Example:
 
 ```bash
+mkdir -p results/ramulator21_smoke
 python -m rram_cmodel.cli hbm-trace \
   --M 1 --K 64 --N 128 --weight-bits 8 \
   --workdir results/ramulator21_smoke
 ```
+
+The validated smoke run issued 256 ordered 32-byte HBM transactions and completed in 1101 HBM3 controller cycles with the pinned Ramulator2.1 backend.
 
 ## End-to-end validation
 
@@ -88,7 +106,7 @@ The same pipeline used by the external-backend GitHub Action is available locall
 bash scripts/run_full_validation.sh
 ```
 
-It performs pinned checkout/build, unit tests, a real DESTINY run + manifest verification, a calibrated CModel smoke comparison, a real Ramulator2.1 HBM3 trace, and a small DSE sweep.
+It performs pinned checkout/build, simulator tests, a real DESTINY run + manifest verification, a calibrated CModel smoke comparison, a real Ramulator2.1 HBM3 trace, and a small DSE sweep. The `external-backends` GitHub Action has passed this pipeline end-to-end.
 
 ## ATTACC methodological reference
 
