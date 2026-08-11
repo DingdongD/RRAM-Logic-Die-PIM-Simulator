@@ -10,7 +10,7 @@ cd "$ROOT"
 
 "$PYTHON" -m pip install -e .
 bash "$ROOT/third_party/bootstrap.sh"
-"$PYTHON" -m pytest -q
+"$PYTHON" -m pytest -q "$ROOT/tests"
 
 "$PYTHON" "$ROOT/scripts/calibrate_destiny.py" \
   --destiny-dir "$ROOT/third_party/destiny" \
