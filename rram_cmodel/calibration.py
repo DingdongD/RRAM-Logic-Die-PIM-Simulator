@@ -51,12 +51,12 @@ class RRAMCalibration:
 
 @dataclass(frozen=True)
 class TSVCalibration:
-    """Per-data-TSV physical calibration.
+    """Per-data-TSV, per-hop physical calibration.
 
-    `read_latency_ns` is propagation/driver delay for one modeled TSV hop.
-    `read_energy_pj_per_bit` is the dynamic energy of one data bit traversing
-    that hop. Aggregate data-lane count remains an architecture parameter in
-    `SystemConfig.tsv.width_bits_per_cycle`.
+    The scalar delay/energy/area fields describe one modeled TSV hop. The
+    explicit `hop_count` selects how many identical vertical interfaces the
+    current architecture path traverses. This mirrors DESTINY's stacked-die
+    accounting without hiding stack height inside one unlabeled scalar.
     """
 
     model_lineage: str
@@ -65,10 +65,13 @@ class TSVCalibration:
     read_latency_ns: float
     read_energy_pj_per_bit: float
     area_um2_per_lane: float
+    hop_count: int = 1
     resistance_ohm: Optional[float] = None
     capacitance_ff: Optional[float] = None
 
     def validate(self) -> None:
+        if self.hop_count <= 0:
+            raise ValueError("TSV hop_count must be > 0")
         if self.read_latency_ns < 0:
             raise ValueError("TSV latency must be >= 0")
         if self.read_energy_pj_per_bit < 0 or self.area_um2_per_lane < 0:
@@ -77,6 +80,18 @@ class TSVCalibration:
             raise ValueError("TSV resistance must be >= 0")
         if self.capacitance_ff is not None and self.capacitance_ff < 0:
             raise ValueError("TSV capacitance must be >= 0")
+
+    @property
+    def path_latency_ns(self) -> float:
+        return self.read_latency_ns * self.hop_count
+
+    @property
+    def path_energy_pj_per_bit(self) -> float:
+        return self.read_energy_pj_per_bit * self.hop_count
+
+    @property
+    def path_area_um2_per_lane(self) -> float:
+        return self.area_um2_per_lane * self.hop_count
 
 
 @dataclass(frozen=True)
@@ -148,13 +163,13 @@ class DestinyCalibrationManifest:
         provenance = (
             f"DESTINY@{self.provenance.commit}; "
             f"{self.tsv.model_lineage}; type={self.tsv.tsv_type}; "
-            f"buffered={self.tsv.buffered}"
+            f"buffered={self.tsv.buffered}; hops={self.tsv.hop_count}"
         )
         tsv = replace(
             base.tsv,
-            latency_cycles=max(0, math.ceil(self.tsv.read_latency_ns / period_ns)),
-            energy_pj_per_bit=self.tsv.read_energy_pj_per_bit,
-            area_um2_per_lane=self.tsv.area_um2_per_lane,
+            latency_cycles=max(0, math.ceil(self.tsv.path_latency_ns / period_ns)),
+            energy_pj_per_bit=self.tsv.path_energy_pj_per_bit,
+            area_um2_per_lane=self.tsv.path_area_um2_per_lane,
             provenance=provenance,
         )
         metadata = dict(base.metadata)
@@ -165,6 +180,7 @@ class DestinyCalibrationManifest:
                 "destiny_config_sha256": self.provenance.config_sha256,
                 "destiny_output_sha256": self.provenance.raw_output_sha256,
                 "tsv_model_lineage": self.tsv.model_lineage,
+                "tsv_hop_count": str(self.tsv.hop_count),
             }
         )
         return replace(base, rram=rram, tsv=tsv, metadata=metadata)
