@@ -36,6 +36,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip pytest
 python -m pip install -e .
+mkdir -p results calibration_runs
 ```
 
 ## 4. Bootstrap pinned DESTINY + Ramulator2.1
@@ -44,24 +45,29 @@ python -m pip install -e .
 bash third_party/bootstrap.sh
 ```
 
-Verify pins:
+Verify pins and Python ABI:
 
 ```bash
 git -C third_party/destiny rev-parse HEAD
 git -C third_party/ramulator2 rev-parse HEAD
 python - <<'PY'
 from importlib.metadata import version
+from pathlib import Path
+from ramulator import _ramulator
 print("ramulator package:", version("ramulator"))
+print("native extension:", Path(_ramulator.__file__).resolve())
 PY
 ```
 
-Expected revisions are stored in `third_party/versions.json`.
+Expected revisions are stored in `third_party/versions.json`. `bootstrap.sh` forces Ramulator2 CMake to use the same Python interpreter as the active environment, preventing a native-extension ABI mismatch.
 
-## 5. Run unit/invariant tests
+## 5. Run simulator unit/invariant tests
 
 ```bash
-pytest -q
+pytest -q tests
 ```
+
+The explicit `tests` path is intentional: after bootstrap, `third_party/ramulator2/` contains its own test suites and must not be collected as simulator tests.
 
 ## 6. Run a real DESTINY ReRAM/TSV calibration
 
@@ -94,6 +100,19 @@ print(m)
 PY
 ```
 
+For the checked-in reference calibration config, the validated CI run produced approximately:
+
+```text
+RRAM read latency     1.795909 ns
+RRAM read cycle       1.371801 ns
+RRAM read energy      321.526 pJ/access
+TSV hop count         3
+TSV latency           0.00003033 ns/hop
+TSV effective energy  0.63275 pJ/bit/hop
+```
+
+These are **reference-macro calibration values**, not final silicon claims. Change the DESTINY config for the process, bank capacity, word width, stacking and device assumptions used by an experiment.
+
 ## 7. Run a calibrated NPU vs RRAM-NMP smoke comparison
 
 ```bash
@@ -106,15 +125,16 @@ python -m rram_cmodel.cli compare \
 ## 8. Run the exact weight trace through pinned Ramulator2.1 HBM3
 
 ```bash
+mkdir -p results/ramulator21_smoke
 python -m rram_cmodel.cli hbm-trace \
   --M 1 --K 64 --N 128 --weight-bits 8 \
   --destiny-manifest calibration_runs/destiny_rram_4stack/calibration.json \
   --workdir results/ramulator21_smoke \
   --stem hbm3_smoke \
-  | tee results/ramulator21_smoke.stdout.json
+  | tee results/ramulator21_smoke/hbm3_smoke.stdout.json
 ```
 
-The run directory contains the exact trace, generated Ramulator runner, run manifest, component configuration, returned `sim.stats`, and hashes of both generated inputs and the installed native `_ramulator` extension.
+The validated reference smoke run contains 256 ordered HBM transactions and completed in 1101 Ramulator2.1 controller cycles. The run directory contains the exact trace, generated Ramulator runner, run manifest, component configuration, returned `sim.stats`, and hashes of both generated inputs and the installed native `_ramulator` extension.
 
 ## 9. Run a small calibrated DSE
 
@@ -132,11 +152,13 @@ python -m rram_cmodel.cli dse \
 
 ## 10. One-command full validation
 
-Steps 3-9 after environment activation can be collapsed to:
+After activating the environment, the full path can be executed with:
 
 ```bash
 bash scripts/run_full_validation.sh
 ```
+
+This is the same functional pipeline exercised by the `external-backends` GitHub Action: pinned checkout/build, simulator tests, real DESTINY calibration and manifest verification, calibrated compare, real Ramulator2.1 HBM3 trace, and DSE smoke.
 
 ## 11. Larger DSE example
 
