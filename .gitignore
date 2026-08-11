@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+results/
+*.trace
+*.out
+
+# Bootstrapped pinned external backends (do not commit source trees).
+third_party/destiny/
+third_party/ramulator2/
+third_party/cacti/
+
+# Generated calibration artifacts.
+calibration_runs/

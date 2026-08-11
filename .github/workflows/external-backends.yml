@@ -1,0 +1,36 @@
+name: external-backends
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "third_party/**"
+      - "scripts/calibrate_destiny.py"
+      - "scripts/run_full_validation.sh"
+      - "rram_cmodel/backends/destiny_runner.py"
+      - "rram_cmodel/backends/ramulator21.py"
+      - "rram_cmodel/calibration.py"
+      - ".github/workflows/external-backends.yml"
+
+jobs:
+  validate-external-backends:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test tooling
+        run: python -m pip install --upgrade pip pytest
+      - name: Run pinned external backend pipeline
+        run: bash scripts/run_full_validation.sh
+      - name: Archive calibration and smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-backend-validation
+          if-no-files-found: warn
+          path: |
+            calibration_runs/
+            results/
