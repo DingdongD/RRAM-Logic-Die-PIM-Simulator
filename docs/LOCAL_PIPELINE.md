@@ -106,6 +106,7 @@ For the checked-in reference calibration config, the validated CI run produced a
 RRAM read latency     1.795909 ns
 RRAM read cycle       1.371801 ns
 RRAM read energy      321.526 pJ/access
+RRAM static power     316.032 mW for 64 replicated macros
 TSV hop count         3
 TSV latency           0.00003033 ns/hop
 TSV effective energy  0.63275 pJ/bit/hop
@@ -159,6 +160,20 @@ bash scripts/run_full_validation.sh
 ```
 
 This is the same functional pipeline exercised by the `external-backends` GitHub Action: pinned checkout/build, simulator tests, real DESTINY calibration and manifest verification, calibrated compare, real Ramulator2.1 HBM3 trace, and DSE smoke.
+
+A successful run produces the key artifacts:
+
+```text
+calibration_runs/destiny_rram_4stack/destiny.cfg
+calibration_runs/destiny_rram_4stack/destiny.out
+calibration_runs/destiny_rram_4stack/calibration.json
+calibration_runs/destiny_rram_4stack/compare_smoke.json
+results/ramulator21_smoke/hbm3_smoke.trace
+results/ramulator21_smoke/hbm3_smoke_ramulator21.py
+results/ramulator21_smoke/hbm3_smoke.run.json
+results/ramulator21_smoke/hbm3_smoke.stdout.json
+results/dse_smoke.csv
+```
 
 ## 11. Larger DSE example
 
