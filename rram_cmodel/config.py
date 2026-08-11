@@ -61,7 +61,13 @@ class BankedMemoryConfig:
 
 @dataclass(frozen=True)
 class StreamStageConfig:
-    """A pipelined transfer stage (TSV, NoC, SRAM port, etc.)."""
+    """A pipelined transfer stage (TSV, NoC, SRAM port, etc.).
+
+    For TSVs, `latency_cycles` and `energy_pj_per_bit` should be calibrated
+    from a physical TSV model such as DESTINY/CACTI-3DD. The aggregate
+    `width_bits_per_cycle` is an architectural number of simultaneously driven
+    data TSV lanes; it is not inferred from the physical TSV RC model.
+    """
 
     name: str
     width_bits_per_cycle: int
@@ -69,6 +75,8 @@ class StreamStageConfig:
     energy_pj_per_bit: float
     efficiency: float = 1.0
     static_power_mw: float = 0.0
+    area_um2_per_lane: float = 0.0
+    provenance: str = ""
 
     def __post_init__(self) -> None:
         _positive("width_bits_per_cycle", self.width_bits_per_cycle)
@@ -77,10 +85,70 @@ class StreamStageConfig:
         if not 0 < self.efficiency <= 1.0:
             raise ValueError("efficiency must be in (0, 1]")
         _non_negative("static_power_mw", self.static_power_mw)
+        _non_negative("area_um2_per_lane", self.area_um2_per_lane)
 
     @property
     def effective_bits_per_cycle(self) -> float:
         return self.width_bits_per_cycle * self.efficiency
+
+    @property
+    def aggregate_area_um2(self) -> float:
+        return self.width_bits_per_cycle * self.area_um2_per_lane
+
+
+@dataclass(frozen=True)
+class FIFOConfig:
+    """Finite architectural FIFO/credit contract.
+
+    This is intentionally separate from the physical TSV model. A FIFO entry
+    stores one packet of at most `packet_bits`; `depth_entries` is the number
+    of outstanding receive slots. If `backpressure_to_source` is true, the
+    transfer path prevents a producer from issuing a response that cannot be
+    accepted by the finite downstream queue.
+    """
+
+    name: str = "tsv_rx_fifo"
+    depth_entries: int = 8
+    packet_bits: int = 256
+    backpressure_to_source: bool = True
+    static_power_mw: float = 0.0
+
+    def __post_init__(self) -> None:
+        _positive("depth_entries", self.depth_entries)
+        _positive("packet_bits", self.packet_bits)
+        _non_negative("static_power_mw", self.static_power_mw)
+
+
+@dataclass(frozen=True)
+class WBufferBankingConfig:
+    """Bank/port organization for each ping-pong WBUF half.
+
+    V0.2 models the two ping-pong halves as independent bank sets. This makes
+    fill-vs-consume overlap explicit without inventing undocumented shared-port
+    arbitration. A future shared-bank mode must add an arbitration policy
+    rather than silently reusing this model.
+    """
+
+    num_banks: int = 16
+    bank_word_bits: int = 64
+    read_ports_per_bank: int = 1
+    write_ports_per_bank: int = 1
+    read_latency_cycles: int = 1
+    write_latency_cycles: int = 1
+    independent_ping_pong_banks: bool = True
+
+    def __post_init__(self) -> None:
+        _positive("num_banks", self.num_banks)
+        _positive("bank_word_bits", self.bank_word_bits)
+        _positive("read_ports_per_bank", self.read_ports_per_bank)
+        _positive("write_ports_per_bank", self.write_ports_per_bank)
+        _non_negative("read_latency_cycles", self.read_latency_cycles)
+        _non_negative("write_latency_cycles", self.write_latency_cycles)
+        if not self.independent_ping_pong_banks:
+            raise NotImplementedError(
+                "Shared-bank ping-pong arbitration is not implemented; "
+                "use independent_ping_pong_banks=True"
+            )
 
 
 @dataclass(frozen=True)
@@ -95,6 +163,7 @@ class WBufferConfig:
             energy_pj_per_bit=0.0,
         )
     )
+    banking: WBufferBankingConfig = field(default_factory=WBufferBankingConfig)
     read_energy_pj_per_bit: float = 0.0
     static_power_mw: float = 0.0
 
@@ -137,4 +206,5 @@ class SystemConfig:
     hbm: BankedMemoryConfig
     npu_direct_stages: List[StreamStageConfig]
     npu_hierarchical_stages: List[StreamStageConfig]
+    tsv_fifo: FIFOConfig = field(default_factory=FIFOConfig)
     metadata: Dict[str, str] = field(default_factory=dict)
