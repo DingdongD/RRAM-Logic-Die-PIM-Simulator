@@ -52,6 +52,8 @@ bash scripts/run_full_validation.sh
 
 The pipeline performs pinned checkout/build, simulator tests, a **real stacked-ReRAM DESTINY run**, manifest normalization and SHA256 verification, a calibrated NPU-vs-NMP comparison, a **real ordered HBM3 trace through Ramulator2.1**, and a small DSE. The same pipeline is exercised by `.github/workflows/external-backends.yml` and has passed end-to-end in GitHub Actions.
 
+The checked-in 180 nm / 1 MiB / 256-bit / 4-stack DESTINY configuration exists only as a reproducible **reference calibration macro**. It proves the pipeline and normalization path; paper-quality silicon claims should substitute an experiment-specific calibrated device/technology configuration.
+
 For the full command-by-command local procedure and host requirements, see `docs/LOCAL_PIPELINE.md`.
 
 ## Output metrics
