@@ -33,19 +33,22 @@ def _tsv():
     )
 
 
-def test_destiny_manifest_round_trip_and_apply(tmp_path: Path):
+def _manifest(tmp_path: Path, tsv=None):
     cfg_file = tmp_path / "destiny.cfg"
     raw_file = tmp_path / "destiny.out"
     cfg_file.write_text("-MemoryType: data\n")
     raw_file.write_text("Read Latency = 7.1e-9\n")
-
-    manifest = DestinyManifestBuilder.build(
+    return DestinyManifestBuilder.build(
         destiny_commit="32ef839f9f32484a7457f8013b2a0883e757300b",
         config_path=cfg_file,
         raw_output_path=raw_file,
         rram=_rram(),
-        tsv=_tsv(),
+        tsv=tsv or _tsv(),
     )
+
+
+def test_destiny_manifest_round_trip_and_apply(tmp_path: Path):
+    manifest = _manifest(tmp_path)
     path = manifest.write(tmp_path / "calibration.json")
     loaded = type(manifest).load(path)
     loaded.validate(verify_files=True)
@@ -61,6 +64,21 @@ def test_destiny_manifest_round_trip_and_apply(tmp_path: Path):
     )
     assert calibrated.metadata["calibration"] == "destiny_manifest_v1"
     assert calibrated.metadata["destiny_commit"] == manifest.provenance.commit
+
+
+def test_tsv_hops_scale_physical_path_cost_explicitly(tmp_path: Path):
+    tsv = replace(
+        _tsv(),
+        hop_count=3,
+        read_latency_ns=0.6,
+        read_energy_pj_per_bit=0.02,
+        area_um2_per_lane=10.0,
+    )
+    calibrated = _manifest(tmp_path, tsv=tsv).apply(functional_example())
+    assert calibrated.tsv.latency_cycles == 2  # ceil(3 * 0.6 ns / 1 ns)
+    assert calibrated.tsv.energy_pj_per_bit == pytest.approx(0.06)
+    assert calibrated.tsv.area_um2_per_lane == pytest.approx(30.0)
+    assert calibrated.metadata["tsv_hop_count"] == "3"
 
 
 def test_manifest_detects_modified_raw_output(tmp_path: Path):
