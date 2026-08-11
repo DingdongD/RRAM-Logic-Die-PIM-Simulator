@@ -208,3 +208,14 @@ class SystemConfig:
     npu_hierarchical_stages: List[StreamStageConfig]
     tsv_fifo: FIFOConfig = field(default_factory=FIFOConfig)
     metadata: Dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # V0.2 deliberately does not invent hidden TSV flit segmentation. One
+        # physical RRAM response must fit in one explicitly configured FIFO
+        # packet. Supporting wider source responses requires an explicit
+        # repacketizer component and corresponding traffic/latency accounting.
+        if self.rram.read_granule_bits > self.tsv_fifo.packet_bits:
+            raise ValueError(
+                "RRAM read_granule_bits exceeds tsv_fifo.packet_bits; "
+                "configure a large enough FIFO packet or add an explicit repacketizer"
+            )
