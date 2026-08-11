@@ -3,7 +3,14 @@ from __future__ import annotations
 from enum import Enum
 from typing import Dict
 
-from .components import BankedReadMemory, PELine, StreamStage, TransferPath
+from .components import (
+    BankedReadMemory,
+    BankedWBufferWriteStage,
+    PELine,
+    RRAMTSVWBufferPath,
+    StreamStage,
+    TransferPath,
+)
 from .config import SystemConfig
 from .mapping import GemmMapper
 from .stats import SimulationResult, TrafficCounters
@@ -19,31 +26,54 @@ class ArchitectureKind(str, Enum):
 class CycleEventSimulator:
     """Transaction/event CModel with explicit ping-pong WBUF overlap.
 
-    Every physical source read granule is mapped to a bank, bank issue
-    constraints are enforced, packets traverse serialized transfer stages, and
-    the PE line starts only when the corresponding WBUF half is ready.
+    RRAM-NMP couples banked RRAM timing, calibrated physical TSV transfer,
+    finite TSV receive FIFO credits/backpressure, and bank/port-aware WBUF
+    filling. Pure-NPU baselines share the same banked WBUF organization.
     """
 
     def __init__(self, cfg: SystemConfig) -> None:
         self.cfg = cfg
 
-    def _make_path(self, arch: ArchitectureKind) -> TransferPath:
+    def _make_path(self, arch: ArchitectureKind):
         if arch == ArchitectureKind.RRAM_NMP:
-            source_cfg = self.cfg.rram
-            stage_cfgs = [self.cfg.tsv, self.cfg.wbuf.write_stage]
-        elif arch == ArchitectureKind.NPU_DIRECT:
+            return RRAMTSVWBufferPath(
+                source=BankedReadMemory(self.cfg.rram),
+                tsv_cfg=self.cfg.tsv,
+                fifo_cfg=self.cfg.tsv_fifo,
+                wbuf_cfg=self.cfg.wbuf,
+                name=arch.value,
+            )
+        if arch == ArchitectureKind.NPU_DIRECT:
             source_cfg = self.cfg.hbm
-            stage_cfgs = [*self.cfg.npu_direct_stages, self.cfg.wbuf.write_stage]
+            stage_cfgs = self.cfg.npu_direct_stages
         elif arch == ArchitectureKind.NPU_HIERARCHICAL:
             source_cfg = self.cfg.hbm
-            stage_cfgs = [*self.cfg.npu_hierarchical_stages, self.cfg.wbuf.write_stage]
+            stage_cfgs = self.cfg.npu_hierarchical_stages
         else:
             raise ValueError(f"Unsupported architecture {arch}")
+
         return TransferPath(
             source=BankedReadMemory(source_cfg),
-            stages=[StreamStage(x) for x in stage_cfgs],
+            stages=[
+                *[StreamStage(x) for x in stage_cfgs],
+                BankedWBufferWriteStage(self.cfg.wbuf),
+            ],
             name=arch.value,
         )
+
+    def _static_power_mw(self, arch: ArchitectureKind, path) -> float:
+        static_mw = self.cfg.pe.static_power_mw + self.cfg.wbuf.static_power_mw
+        static_mw += path.source.cfg.static_power_mw
+        if arch == ArchitectureKind.RRAM_NMP:
+            static_mw += self.cfg.tsv.static_power_mw
+            static_mw += self.cfg.tsv_fifo.static_power_mw
+        else:
+            for stage in path.stages:
+                # WBUF macro static power is accounted once via WBufferConfig.
+                if isinstance(stage, BankedWBufferWriteStage):
+                    continue
+                static_mw += stage.cfg.static_power_mw
+        return static_mw
 
     def run(self, workload: GemmWorkload, arch: ArchitectureKind) -> SimulationResult:
         mapper = GemmMapper(workload, self.cfg.pe, self.cfg.wbuf)
@@ -64,8 +94,9 @@ class CycleEventSimulator:
             for name, stats in fetch.stages.items():
                 stage_totals.setdefault(name, TrafficCounters()).add(stats)
 
-        # Prioritize tile 0 into WBUF-A. When compute starts, launch tile 1
-        # into WBUF-B. On every swap the just-consumed half is reused for i+2.
+        # Tile 0 fills WBUF-A. While it computes, tile 1 fills WBUF-B. The
+        # mapper constrains each tile to one WBUF half, so a half is not reused
+        # for a new fill until its previous compute has completed.
         first = path.fetch(tiles[0].weight_segments(workload), start_cycle=0)
         accumulate_fetch(first)
         total_cycle = first.ready_cycle
@@ -116,16 +147,18 @@ class CycleEventSimulator:
             f"{path.source.cfg.name}_useful": source_total.useful_bits,
             f"{path.source.cfg.name}_transferred": source_total.transferred_bits,
         }
+        queue_stalls: Dict[str, int] = {}
+        max_occupancy: Dict[str, int] = {}
         for name, stats in stage_totals.items():
             energy[f"{name}_dynamic"] = stats.dynamic_energy_pj
             traffic[f"{name}_transferred"] = stats.transferred_bits
+            if stats.queue_stall_cycles:
+                queue_stalls[name] = stats.queue_stall_cycles
+            if stats.max_queue_occupancy:
+                max_occupancy[name] = stats.max_queue_occupancy
 
         # mW * ns = pJ.
-        static_mw = self.cfg.pe.static_power_mw + self.cfg.wbuf.static_power_mw
-        static_mw += path.source.cfg.static_power_mw
-        for stage in path.stages:
-            static_mw += stage.cfg.static_power_mw
-        energy["static"] = static_mw * time_ns
+        energy["static"] = self._static_power_mw(arch, path) * time_ns
 
         return SimulationResult(
             architecture=arch.value,
@@ -138,6 +171,8 @@ class CycleEventSimulator:
             weight_source_transferred_bits=source_total.transferred_bits,
             energy_pj=energy,
             traffic_bits=traffic,
+            queue_stall_cycles=queue_stalls,
+            max_queue_occupancy=max_occupancy,
         )
 
     def compare(self, workload: GemmWorkload) -> Dict[str, object]:
